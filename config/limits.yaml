@@ -1,0 +1,9 @@
+# Hard limits enforced by bot/validator.py.
+# If you change a value here, update .claude/skills/risk/SKILL.md to match.
+max_position_pct: 5          # each new position <= 5% of equity
+max_open_positions: 6        # positions + open buy orders
+max_new_trades_per_day: 2    # new entries per US/Eastern day
+max_daily_loss_pct: 2        # vs. previous-close equity; blocks new entries for the day
+whitelist:
+  etfs:   [SPY, QQQ, IWM, XLK, XLF, XLV, XLE, XLI, XLY, XLP, XLU]
+  stocks: [AAPL, MSFT, NVDA, AMZN, GOOGL, META, AVGO, JPM, V, LLY, XOM, COST, WMT, HD, UNH]

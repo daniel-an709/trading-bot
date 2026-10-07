@@ -1,0 +1,11 @@
+# Trend-pullback strategy parameters used by bot/signals.py and bot/validator.py.
+# If you change a value here, update .claude/skills/strategy/SKILL.md to match.
+sma_period: 200
+rsi_period: 14
+rsi_max: 40
+atr_period: 14
+stop_atr_multiple: 2.0
+target_atr_multiple: 3.0
+time_exit_trading_days: 10
+news_window_hours: 72
+min_bars: 220
