@@ -51,6 +51,23 @@ class ApprovedOrder(_Issued):
 
 
 @dataclass(frozen=True)
+class ApprovedExit(_Issued):
+    symbol: str
+    quantity: int
+
+
+@dataclass(frozen=True)
+class ExitResult:
+    status: Literal["approved", "rejected", "halted"]
+    reasons: tuple[str, ...]
+    exit: ApprovedExit | None = None
+
+    @property
+    def approved(self) -> bool:
+        return self.status == "approved"
+
+
+@dataclass(frozen=True)
 class ValidationResult:
     status: Literal["approved", "rejected", "no_trade", "halted"]
     reasons: tuple[str, ...]
@@ -189,3 +206,30 @@ def _validate_proposal(raw, snapshot, candidates, limits, strategy, project_root
         take_profit_price=target,
     )
     return ValidationResult("approved", (), proposal, order)
+
+
+def validate_exit(
+    symbol: str,
+    snapshot: MarketSnapshot,
+    *,
+    project_root: Path,
+    environ: Mapping[str, str],
+) -> ExitResult:
+    """Approve closing the full quantity of an existing long position. Never raises."""
+    try:
+        halt = _halt_reason(snapshot, project_root, environ)
+        if halt:
+            return ExitResult("halted", (halt,))
+
+        reasons: list[str] = []
+        if not snapshot.market_open:
+            reasons.append("market_closed: market is not open")
+        position = next((p for p in snapshot.positions if p.symbol == symbol), None)
+        if position is None or position.qty <= 0:
+            reasons.append(f"not_held: no long position in {symbol}")
+        if reasons:
+            return ExitResult("rejected", tuple(reasons))
+
+        return ExitResult("approved", (), _issue(ApprovedExit, symbol=symbol, quantity=position.qty))
+    except Exception as e:  # fail closed
+        return ExitResult("rejected", (f"internal_error: {type(e).__name__}: {e}",))
