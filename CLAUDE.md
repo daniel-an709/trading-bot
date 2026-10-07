@@ -4,6 +4,10 @@
 
 An AI-in-the-loop swing-trading bot on an Alpaca **paper** account. Code finds trend-pullback candidates; Claude (via the Agent SDK, using the skills in `.claude/skills/`) reads the news and proposes at most one trade per run; `bot/validator.py` checks every proposal against hard limits; only `bot/executor.py` submits orders. Full design: `docs/superpowers/specs/2026-10-07-trading-bot-design.md`.
 
+## Scheduled bot sessions
+
+If your prompt says it is the bot's final-answer request, you are the scheduled trading session, not a development session. Ignore the Workflow and Commands sections below; follow the strategy, risk and journal skills and answer with only the JSON object.
+
 ## Hard rules (never break)
 
 - **Paper only.** The only allowed trading endpoint is `https://paper-api.alpaca.markets`. Never add a setting, flag or code path that reaches the live endpoint.

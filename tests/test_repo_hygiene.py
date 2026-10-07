@@ -65,3 +65,9 @@ def test_constraints_pin_every_requirement():
     reqs, constraints = pins("requirements.txt"), pins("constraints.txt")
     for pkg, ver in reqs.items():
         assert constraints.get(pkg) == ver, f"{pkg} not pinned to {ver} in constraints.txt"
+
+
+def test_claude_md_tells_bot_sessions_to_skip_dev_workflow():
+    text = (ROOT / "CLAUDE.md").read_text()
+    assert "## Scheduled bot sessions" in text
+    assert text.index("## Scheduled bot sessions") < text.index("## Hard rules")

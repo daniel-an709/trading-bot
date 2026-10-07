@@ -53,6 +53,38 @@ def _skills_loaded(run: AgentRun) -> list[str]:
     return skills
 
 
+def new_record(now: datetime) -> dict:
+    return {
+        "run_id": uuid.uuid4().hex,
+        "timestamp_utc": now.astimezone(UTC).isoformat(),
+        "mode": "dry_run",
+        "outcome": None,
+        "kill_switch": None,
+        "account": None,
+        "positions": None,
+        "open_orders": None,
+        "candidates": [],
+        "rules_only_pick": None,
+        "capacity": None,
+        "budget": None,
+        "agent": None,
+        "proposal": None,
+        "validation": None,
+        "order": None,
+        "time_exits": [],
+        "errors": [],
+    }
+
+
+def finish(record: dict, log_dir: Path, outcome: str, stage: str | None = None,
+           message: str | None = None) -> tuple[dict, int]:
+    record["outcome"] = outcome
+    if stage:
+        record["errors"].append({"stage": stage, "message": message})
+    append_record(record, log_dir)
+    return record, OUTCOME_EXIT.get(outcome, 0)
+
+
 def run_once(
     *,
     broker_factory: Callable[[], Broker],
@@ -65,46 +97,24 @@ def run_once(
     environ: Mapping[str, str],
     log_dir: Path,
 ) -> tuple[dict, int]:
-    record = {
-        "run_id": uuid.uuid4().hex,
-        "timestamp_utc": now.astimezone(UTC).isoformat(),
-        "mode": "dry_run",
-        "outcome": None,
-        "kill_switch": None,
-        "account": None,
-        "positions": None,
-        "open_orders": None,
-        "candidates": [],
-        "rules_only_pick": None,
-        "budget": None,
-        "agent": None,
-        "proposal": None,
-        "validation": None,
-        "order": None,
-        "time_exits": [],
-        "errors": [],
-    }
+    record = new_record(now)
 
-    def finish(outcome: str, stage: str | None = None, message: str | None = None) -> tuple[dict, int]:
-        record["outcome"] = outcome
-        if stage:
-            record["errors"].append({"stage": stage, "message": message})
-        append_record(record, log_dir)
-        return record, OUTCOME_EXIT.get(outcome, 0)
+    def done(outcome: str, stage: str | None = None, message: str | None = None) -> tuple[dict, int]:
+        return finish(record, log_dir, outcome, stage, message)
 
     stage = "kill_switch"
     try:
         killed = kill_switch_reason(project_root, environ)
         if killed:
             record["kill_switch"] = killed
-            return finish("halted")
+            return done("halted")
 
         stage = "broker"
         broker = broker_factory()
 
         stage = "paper_check"
         if not is_paper_endpoint(broker.trading_endpoint):
-            return finish("error", stage, f"trading endpoint {broker.trading_endpoint!r} is not the paper endpoint")
+            return done("error", stage, f"trading endpoint {broker.trading_endpoint!r} is not the paper endpoint")
 
         stage = "snapshot"
         tickers = sorted(limits.allowed_tickers)
@@ -114,7 +124,7 @@ def run_once(
         record["positions"] = [dataclasses.asdict(p) for p in snap.positions]
         record["open_orders"] = [dataclasses.asdict(o) for o in snap.open_orders]
         if not snap.market_open:
-            return finish("market_closed")
+            return done("market_closed")
 
         stage = "bars"
         bars = broker.daily_bars(tickers, strategy.min_bars, now)
@@ -125,36 +135,53 @@ def run_once(
         record["candidates"] = [dataclasses.asdict(c) for c in candidates]
         record["rules_only_pick"] = rules_only_pick(candidates)
         if not candidates:
-            return finish("no_candidates")
+            return done("no_candidates")
+
+        stage = "capacity"
+        cap = capacity(snap, limits)
+        record["capacity"] = dataclasses.asdict(cap)
+        loss_halt = cap.daily_pnl_pct <= -Decimal(str(limits.max_daily_loss_pct))
+        if cap.trades_left == 0 or cap.open_slots == 0 or loss_halt:
+            return done("no_capacity")  # the validator would reject any trade, so don't pay for Claude
 
         stage = "budget"
         spent = month_cost_usd(log_dir, now)
-        if spent >= Decimal(str(runner_params.monthly_budget_usd)):
+        per_run = Decimal(str(runner_params.max_budget_usd_per_run))
+        if spent + per_run > Decimal(str(runner_params.monthly_budget_usd)):
             record["budget"] = {"spent_this_month_usd": str(spent), "monthly_budget_usd": runner_params.monthly_budget_usd}
-            return finish("budget_exhausted")
+            return done("budget_exhausted")
 
         stage = "agent"
-        prompt = build_prompt(now.astimezone(NEW_YORK).date(), candidates, snap, capacity(snap, limits))
+        prompt = build_prompt(now.astimezone(NEW_YORK).date(), candidates, snap, cap)
         run = agent(prompt)
-        record["agent"] = {**dataclasses.asdict(run), "skills_loaded": _skills_loaded(run)}
+        record["agent"] = {**dataclasses.asdict(run), "skills_loaded": _skills_loaded(run),
+                           "cost_estimated": run.cost_usd is None}
+        if run.cost_usd is None:  # unknown spend: assume the per-run cap so the monthly guard stays honest
+            record["agent"]["cost_usd"] = runner_params.max_budget_usd_per_run
         if run.error:
-            return finish("error", stage, run.error)
+            return done("error", stage, run.error)
 
         stage = "validation"
         result = validate_proposal(run.raw_output, snap, candidates, limits, strategy,
                                    project_root=project_root, environ=environ)
         record["proposal"] = result.proposal.model_dump(mode="json") if result.proposal else None
         record["validation"] = {"status": result.status, "reasons": list(result.reasons)}
+        internal = [r for r in result.reasons if r.startswith("internal_error")]
+        if internal:
+            return done("error", stage, internal[0])
+        if result.status == "halted":  # kill switch or endpoint changed while Claude was running
+            record["kill_switch"] = result.reasons[0].split(": ", 1)[-1]
+            return done("halted")
         if result.approved:
             record["order"] = {"status": "would_submit", **dataclasses.asdict(result.order)}
-            return finish("would_submit")
-        return finish(result.status)
+            return done("would_submit")
+        return done(result.status)
     except Exception as e:  # fail closed: log where it broke and trade nothing
         message = str(e) if isinstance(e, (BrokerError, RunnerError)) else f"{type(e).__name__}: {e}"
-        return finish("error", stage, message)
+        return done("error", stage, message)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, project_root: Path = PROJECT_ROOT) -> int:
     parser = argparse.ArgumentParser(prog="python -m bot.main", description="Run the trading bot once (dry run).")
     parser.add_argument("--submit", action="store_true", help="send approved orders to the paper account")
     args = parser.parse_args(argv)
@@ -162,8 +189,18 @@ def main(argv: list[str] | None = None) -> int:
         print("Order submission is not connected until build step 6. Run without --submit for a dry run.")
         return 2
 
-    environ = merge_env(dotenv_values(PROJECT_ROOT / ".env"), os.environ)
-    limits, strategy, runner_params = load_limits(), load_strategy(), load_runner()
+    now = datetime.now(UTC)
+    log_dir = project_root / "logs"
+    try:
+        environ = merge_env(dotenv_values(project_root / ".env"), os.environ)
+        config = project_root / "config"
+        limits = load_limits(config / "limits.yaml")
+        strategy = load_strategy(config / "strategy.yaml")
+        runner_params = load_runner(config / "runner.yaml")
+    except Exception as e:  # a broken config is logged like any other failure
+        record, code = finish(new_record(now), log_dir, "error", "config", f"{type(e).__name__}: {e}")
+        print(f"Run {record['run_id']}: error [config] {record['errors'][0]['message']}")
+        return code
 
     def agent(prompt: str) -> AgentRun:
         trace = []
@@ -176,10 +213,10 @@ def main(argv: list[str] | None = None) -> int:
         limits=limits,
         strategy=strategy,
         runner_params=runner_params,
-        now=datetime.now(UTC),
-        project_root=PROJECT_ROOT,
+        now=now,
+        project_root=project_root,
         environ=environ,
-        log_dir=PROJECT_ROOT / "logs",
+        log_dir=log_dir,
     )
     summary = f"{record['outcome']}"
     if record["validation"]:

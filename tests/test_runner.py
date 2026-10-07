@@ -35,7 +35,7 @@ MSFT = Candidate("MSFT", D("401.2"), D("381.4"), D("34.1"), D("8.2"))
 def test_options_lockdown():
     o = build_options(PARAMS, ENV, [], uvx="/opt/homebrew/bin/uvx")
     assert o.cwd == PROJECT_ROOT and o.setting_sources == ["project"] and o.skills == SKILLS
-    assert o.tools == [] and o.permission_mode == "dontAsk" and o.strict_mcp_config is True
+    assert o.tools == ["Skill"] and o.permission_mode == "dontAsk" and o.strict_mcp_config is True
     assert set(o.allowed_tools) == {mcp_name(t) for t in READ_TOOLS}
     assert not [t for t in o.allowed_tools if WRITE_VERB.search(t)]
     assert {mcp_name(t) for t in SERVER_TOOLS - READ_TOOLS} <= set(o.disallowed_tools)
@@ -73,10 +73,22 @@ def call_gate(name, tool_input=None):
     return out, trace
 
 
-@pytest.mark.parametrize("name", ["Skill", mcp_name("get_news"), mcp_name("get_clock")])
-def test_gate_allows_read_tool_and_skill(name):
+@pytest.mark.parametrize("name", [mcp_name("get_news"), mcp_name("get_clock")])
+def test_gate_allows_read_tools(name):
     out, trace = call_gate(name, {"symbols": "MSFT"})
     assert out == {} and trace == [ToolCall(name, '{"symbols": "MSFT"}', True)]
+
+
+@pytest.mark.parametrize("skill", ["strategy", "risk", "journal"])
+def test_gate_allows_project_skills(skill):
+    out, trace = call_gate("Skill", {"skill": skill})
+    assert out == {} and trace[0].allowed
+
+
+@pytest.mark.parametrize("skill", ["deep-research", "update-config", "loop", None])
+def test_gate_denies_other_skills(skill):
+    out, trace = call_gate("Skill", {"skill": skill} if skill else {})
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny" and not trace[0].allowed
 
 
 @pytest.mark.parametrize("name", [mcp_name("place_stock_order"), mcp_name("close_all_positions"),
@@ -89,7 +101,7 @@ def test_gate_denies_everything_else(name):
 
 
 def test_gate_truncates_long_input():
-    _, trace = call_gate("Skill", {"x": "y" * 1000})
+    _, trace = call_gate(mcp_name("get_news"), {"x": "y" * 1000})
     assert len(trace[0].input_summary) <= 200
 
 

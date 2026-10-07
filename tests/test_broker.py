@@ -148,3 +148,17 @@ def test_daily_bars_drop_today_and_keep_last_count():
 
 def test_daily_bars_missing_ticker_is_empty():
     assert broker().daily_bars(["MSFT"], 3, NOW) == {"MSFT": []}
+
+
+def test_open_orders_request_uses_limit_and_fails_closed_when_full():
+    trading = FakeTrading(open_orders=[order("MSFT", "buy", "1")] * 500)
+    with pytest.raises(BrokerError, match="500"):
+        broker(trading).snapshot([], NOW)
+    assert trading.order_filters[0].limit == 500
+
+
+@pytest.mark.parametrize("qty,match", [("10.5", "fractional"), ("0", "zero")])
+def test_unusual_long_quantity_raises_clear_error(qty, match):
+    trading = FakeTrading(positions=[NS(symbol="AAPL", qty=qty, side="long", avg_entry_price="190")])
+    with pytest.raises(BrokerError, match=match):
+        broker(trading).snapshot([], NOW)

@@ -22,6 +22,7 @@ from bot.models import Bar, MarketSnapshot, OpenOrder, Position
 from bot.safety import is_paper_endpoint
 
 NEW_YORK = ZoneInfo("America/New_York")
+ORDER_LIMIT = 500  # Alpaca returns 50 orders unless asked for more
 
 
 class BrokerError(Exception):
@@ -80,19 +81,25 @@ class Broker:
 
         positions = []
         for p in self._call("positions", self._trading.get_all_positions):
-            if _value(p.side) != "long" or Decimal(p.qty) <= 0:
+            qty = Decimal(p.qty)
+            if _value(p.side) != "long":
                 raise BrokerError(f"positions: short position in {p.symbol}; the bot is long-only")
-            positions.append(Position(p.symbol, int(Decimal(p.qty)), _decimal(p.avg_entry_price)))
+            if qty <= 0:
+                raise BrokerError(f"positions: zero or negative quantity {qty} in {p.symbol}")
+            if qty != qty.to_integral_value():
+                raise BrokerError(f"positions: fractional position {qty} in {p.symbol}; the bot only handles whole shares")
+            positions.append(Position(p.symbol, int(qty), _decimal(p.avg_entry_price)))
 
-        open_orders = tuple(
-            OpenOrder(o.symbol, _value(o.side), int(Decimal(o.qty or 0)))
-            for o in self._call("orders", self._trading.get_orders, GetOrdersRequest(status=QueryOrderStatus.OPEN))
-        )
+        raw_open = self._call("orders", self._trading.get_orders,
+                              GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=ORDER_LIMIT))
+        if len(raw_open) >= ORDER_LIMIT:
+            raise BrokerError(f"orders: {ORDER_LIMIT} or more open orders; cannot be sure the list is complete")
+        open_orders = tuple(OpenOrder(o.symbol, _value(o.side), int(Decimal(o.qty or 0))) for o in raw_open)
 
         midnight = _ny_midnight(now)
         today = midnight.date()
         todays = self._call("orders", self._trading.get_orders, GetOrdersRequest(
-            status=QueryOrderStatus.ALL, after=midnight.astimezone(now.tzinfo), side=OrderSide.BUY, limit=500))
+            status=QueryOrderStatus.ALL, after=midnight.astimezone(now.tzinfo), side=OrderSide.BUY, limit=ORDER_LIMIT))
         buys_today = sum(
             1 for o in todays
             if _value(o.side) == "buy" and o.submitted_at.astimezone(NEW_YORK).date() == today

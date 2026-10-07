@@ -8,7 +8,7 @@ from bot.broker import BrokerError
 from bot.config import load_limits, load_runner, load_strategy
 from bot.journal import append_record
 from bot.main import main, merge_env, run_once
-from bot.models import Bar, MarketSnapshot
+from bot.models import Bar, MarketSnapshot, Position
 from bot.runner import AgentRun, RunnerError, ToolCall
 from bot.safety import PAPER_ENDPOINT
 
@@ -22,9 +22,10 @@ def pullback_bars():
 
 
 class FakeBroker:
-    def __init__(self, endpoint=PAPER_ENDPOINT, market_open=True, bars=None, fail=None):
+    def __init__(self, endpoint=PAPER_ENDPOINT, market_open=True, bars=None, fail=None, **snap):
         self.trading_endpoint = endpoint
         self.market_open = market_open
+        self.snap = snap
         self.bars = {"MSFT": pullback_bars()} if bars is None else bars
         self.fail = fail
         self.calls = []
@@ -33,10 +34,11 @@ class FakeBroker:
         self.calls.append("snapshot")
         if self.fail == "snapshot":
             raise BrokerError("orders: RuntimeError: boom")
-        return MarketSnapshot(
+        fields = dict(
             market_open=self.market_open, equity=D("100000"), last_equity=D("100000"), buying_power=D("200000"),
             positions=(), open_orders=(), buys_submitted_today=0, latest_prices={"MSFT": D("289")},
             trading_endpoint=self.trading_endpoint)
+        return MarketSnapshot(**{**fields, **self.snap})
 
     def daily_bars(self, tickers, count, now):
         self.calls.append("daily_bars")
@@ -48,16 +50,18 @@ GOOD = ('{"decision":"trade","ticker":"MSFT","side":"buy","quantity":17,"order_t
 
 
 class FakeAgent:
-    def __init__(self, raw=GOOD, error=None, raises=None):
-        self.raw, self.error, self.raises = raw, error, raises
+    def __init__(self, raw=GOOD, error=None, raises=None, cost=0.42, side_effect=None):
+        self.raw, self.error, self.raises, self.cost, self.side_effect = raw, error, raises, cost, side_effect
         self.prompts = []
 
     def __call__(self, prompt):
         self.prompts.append(prompt)
         if self.raises:
             raise self.raises
+        if self.side_effect:
+            self.side_effect()
         calls = [ToolCall("Skill", '{"skill": "strategy"}', True), ToolCall("mcp__alpaca__get_news", '{}', True)]
-        return AgentRun(None if self.error else self.raw, calls, 0.42, 5, 12.5, self.error)
+        return AgentRun(None if self.error else self.raw, calls, self.cost, 5, 12.5, self.error)
 
 
 def run(tmp_path, broker=None, agent=None, environ=None, broker_factory=None):
@@ -180,3 +184,57 @@ def test_merge_env_kill_switch_on_from_either_source(dotenv, os_env, on):
 def test_merge_env_os_overrides_other_keys_and_skips_empty():
     merged = merge_env({"ALPACA_API_KEY": "file", "X": None}, {"ALPACA_API_KEY": "shell"})
     assert merged["ALPACA_API_KEY"] == "shell" and "X" not in merged
+
+
+def test_budget_counts_the_next_run(tmp_path):
+    append_record({"timestamp_utc": "2026-10-02T14:00:00+00:00", "agent": {"cost_usd": 26.5}}, tmp_path / "logs")
+    record, _, _, agent = run(tmp_path)
+    assert record["outcome"] == "budget_exhausted" and agent.prompts == []  # 26.5 + 1.00 per-run cap > 27
+
+
+def test_budget_allows_run_that_fits(tmp_path):
+    append_record({"timestamp_utc": "2026-10-02T14:00:00+00:00", "agent": {"cost_usd": 26.0}}, tmp_path / "logs")
+    record, _, _, _ = run(tmp_path)
+    assert record["outcome"] == "would_submit"
+
+
+def test_unknown_cost_logged_as_per_run_cap(tmp_path):
+    record, code, _, _ = run(tmp_path, agent=FakeAgent(error="ProcessError: crashed", cost=None))
+    assert code == 1 and record["agent"]["cost_usd"] == 1.0 and record["agent"]["cost_estimated"] is True
+
+
+def test_known_cost_not_marked_estimated(tmp_path):
+    record, _, _, _ = run(tmp_path)
+    assert record["agent"]["cost_usd"] == 0.42 and record["agent"]["cost_estimated"] is False
+
+
+@pytest.mark.parametrize("snap", [
+    dict(buys_submitted_today=2),
+    dict(positions=tuple(Position(t, 1, D(1)) for t in ["AAPL", "NVDA", "AMZN", "GOOGL", "META", "JPM"])),
+    dict(equity=D("98000")),
+])
+def test_no_capacity_no_agent_call(tmp_path, snap):
+    record, code, _, agent = run(tmp_path, broker=FakeBroker(**snap))
+    assert code == 0 and record["outcome"] == "no_capacity" and agent.prompts == []
+
+
+def test_kill_switch_during_agent_halts_at_validation(tmp_path):
+    record, code, _, _ = run(tmp_path, agent=FakeAgent(side_effect=lambda: (tmp_path / "KILL").touch()))
+    assert code == 0 and record["outcome"] == "halted" and "KILL file" in record["kill_switch"]
+    assert record["order"] is None
+
+
+def test_validator_internal_error_is_an_error(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("bug")
+    monkeypatch.setattr("bot.validator._validate_proposal", boom)
+    record, code, _, _ = run(tmp_path)
+    assert code == 1 and record["outcome"] == "error" and record["errors"][0]["stage"] == "validation"
+
+
+def test_bad_config_is_logged(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/limits.yaml").write_text("max_position_pct: 5\nmax_position_pct: 50\n")
+    assert main([], project_root=tmp_path) == 1
+    [rec] = logged(tmp_path)
+    assert rec["outcome"] == "error" and rec["errors"][0]["stage"] == "config"

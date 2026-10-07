@@ -1,10 +1,12 @@
 """One locked-down Agent SDK session: Claude reads the news and returns its raw final answer.
 
 Lockdown, in layers:
-- tools=[]: no built-in tools at all (no Bash, file editing or web).
+- tools=["Skill"]: the only built-in tool is Skill (no Bash, file editing or web). An empty
+  list would also remove Skill, and with it the strategy, risk and journal skills.
 - allowed_tools: only the read-only Alpaca tools; everything else on the server is disallowed.
 - permission_mode="dontAsk": anything not pre-approved is refused without asking.
-- A PreToolUse hook denies any tool not on the allow list and records every call.
+- A PreToolUse hook denies any tool not on the allow list, and any skill other than ours
+  (Claude Code bundles others), and records every call.
 - strict_mcp_config: only the Alpaca server configured here, paper mode forced.
 - setting_sources=["project"]: .claude/settings.json deny rules and the repo's skills apply.
 
@@ -115,15 +117,16 @@ def build_prompt(today: date, candidates: Sequence[Candidate], snapshot: MarketS
 def make_gate(trace: list[ToolCall]):
     async def gate(hook_input, tool_use_id, context):
         name = hook_input.get("tool_name", "")
-        summary = json.dumps(hook_input.get("tool_input") or {}, sort_keys=True, default=str)[:200]
-        allowed = name in ALLOWED
+        tool_input = hook_input.get("tool_input") or {}
+        summary = json.dumps(tool_input, sort_keys=True, default=str)[:200]
+        allowed = tool_input.get("skill") in SKILLS if name == "Skill" else name in ALLOWED
         trace.append(ToolCall(name, summary, allowed))
         if allowed:
             return {}
         return {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": f"{name} is not on the bot's read-only allow list",
+            "permissionDecisionReason": f"{name} {summary} is not on the bot's read-only allow list",
         }}
     return gate
 
@@ -149,7 +152,7 @@ def build_options(
         cwd=PROJECT_ROOT,
         setting_sources=["project"],
         skills=SKILLS,
-        tools=[],
+        tools=["Skill"],
         allowed_tools=sorted(ALLOWED - {"Skill"}),
         disallowed_tools=sorted({mcp_name(t) for t in SERVER_TOOLS - READ_TOOLS} | BUILT_IN_TOOLS),
         permission_mode="dontAsk",

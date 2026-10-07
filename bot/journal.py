@@ -2,7 +2,7 @@
 
 import dataclasses
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -37,7 +37,7 @@ def month_cost_usd(log_dir: Path, now: datetime) -> Decimal:
     path = log_dir / LOG_FILE
     if not path.exists():
         return Decimal(0)
-    month = now.strftime("%Y-%m")
+    month = now.astimezone(UTC).strftime("%Y-%m")
     total = Decimal(0)
     for line in path.read_text().splitlines():
         try:

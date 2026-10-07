@@ -54,3 +54,11 @@ def test_month_cost_skips_corrupt_line(tmp_path):
 
 def test_missing_log_dir_is_zero(tmp_path):
     assert month_cost_usd(tmp_path / "nope", NOW) == 0
+
+
+def test_month_cost_uses_utc_month(tmp_path):
+    from zoneinfo import ZoneInfo
+    append_record(record("2026-11-01T01:00:00+00:00", 0.5), tmp_path)
+    append_record(record("2026-10-31T20:00:00+00:00", 9.0), tmp_path)
+    ny_evening = datetime(2026, 10, 31, 21, 30, tzinfo=ZoneInfo("America/New_York"))  # already November in UTC
+    assert month_cost_usd(tmp_path, ny_evening) == D("0.5")
