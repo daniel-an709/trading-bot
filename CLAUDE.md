@@ -39,8 +39,8 @@ python3 -m venv .venv                                          # create the virt
 .venv/bin/pip install -r requirements.txt -c constraints.txt   # install exact locked versions
 source .venv/bin/activate                                      # activate it
 .venv/bin/pytest                                               # run all tests
+.venv/bin/python -m bot.main                                   # one dry run (no orders); appends to logs/runs.jsonl
 ```
 
 After changing `requirements.txt`, regenerate the lock: `.venv/bin/pip freeze > constraints.txt` (keep the two header comment lines).
 
-Dry-run command: added in build step 5.
