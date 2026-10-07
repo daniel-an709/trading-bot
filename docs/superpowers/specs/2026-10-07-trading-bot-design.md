@@ -226,5 +226,6 @@ Each step: TDD, tests run and shown passing before claiming done, diffs shown, `
 | Agent SDK auth (Console API key) and option names | Step 5 |
 | Alpaca MCP paper-mode setting name | Step 4 |
 | Bracket leg time-in-force: whether `day` legs expire at close; if so use `gtc` and have the executor cancel stale unfilled entries next run | Step 6 |
+| Time-exit order handling: a held position always has open bracket sells (stop/target), and a previous exit sell may still be open. The executor must cancel all open orders for the symbol, confirm they are cancelled, then sell the full quantity — never place a second sell on top | Step 6 |
 | Scheduler: local cron vs. cloud | Step 7 |
 | Python 3.13 compatibility of `claude-agent-sdk` and `alpaca-py` | Step 1 |

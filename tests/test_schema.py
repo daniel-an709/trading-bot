@@ -78,3 +78,14 @@ def test_malformed_rejected(raw):
 def test_non_string_input_rejected():
     with pytest.raises(MalformedProposal):
         parse_proposal(None)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("raw", [
+    '{"decision":["trade"]}',
+    '{"decision":{}}',
+    "[" * 19_999,
+    '{"a":' * 5_000 + "1" + "}" * 5_000,
+], ids=["decision-list", "decision-object", "deep-list", "deep-object"])
+def test_hostile_structures_rejected_as_malformed(raw):
+    with pytest.raises(MalformedProposal):
+        parse_proposal(raw)

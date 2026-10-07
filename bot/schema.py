@@ -10,13 +10,13 @@ import re
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictInt, ValidationError, field_validator, model_validator
+
+from bot.config import STRICT_CONFIG, TICKER_PATTERN
 
 MAX_RAW_CHARS = 20_000
 
-_TICKER = re.compile(r"^[A-Z]{1,5}$")
 _FENCE = re.compile(r"^```(?:json)?[ \t]*\n(.*)\n[ \t]*```$", re.DOTALL)
-_STRICT = ConfigDict(frozen=True, extra="forbid")
 
 
 class MalformedProposal(ValueError):
@@ -30,7 +30,7 @@ def _non_blank(text: str) -> str:
 
 
 class TradeProposal(BaseModel):
-    model_config = _STRICT
+    model_config = STRICT_CONFIG
 
     decision: Literal["trade"]
     ticker: str
@@ -54,7 +54,7 @@ class TradeProposal(BaseModel):
         if not isinstance(value, str):
             raise ValueError("must be a string")
         ticker = value.strip().upper()
-        if not _TICKER.match(ticker):
+        if not TICKER_PATTERN.fullmatch(ticker):
             raise ValueError(f"ticker {value!r} must be 1-5 letters")
         return ticker
 
@@ -70,7 +70,7 @@ class TradeProposal(BaseModel):
 
 
 class NoTrade(BaseModel):
-    model_config = _STRICT
+    model_config = STRICT_CONFIG
 
     decision: Literal["no_trade"]
     reasoning: str
@@ -108,15 +108,16 @@ def parse_proposal(raw: str) -> TradeProposal | NoTrade:
             parse_constant=_reject_constant,
             object_pairs_hook=_reject_duplicate_keys,
         )
-    except ValueError as e:  # JSONDecodeError is a ValueError
+    except (ValueError, RecursionError) as e:  # JSONDecodeError is a ValueError
         raise MalformedProposal(f"invalid JSON: {e}") from None
 
     if not isinstance(data, dict):
         raise MalformedProposal("output is not a JSON object")
 
-    model = {"trade": TradeProposal, "no_trade": NoTrade}.get(data.get("decision"))
+    decision = data.get("decision")
+    model = {"trade": TradeProposal, "no_trade": NoTrade}.get(decision) if isinstance(decision, str) else None
     if model is None:
-        raise MalformedProposal(f"unknown decision {data.get('decision')!r}")
+        raise MalformedProposal(f"unknown decision {decision!r}")
 
     try:
         return model.model_validate(data)

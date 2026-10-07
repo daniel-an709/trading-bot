@@ -2,18 +2,23 @@
 
 import re
 from pathlib import Path
+from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-_TICKER = re.compile(r"^[A-Z]{1,5}$")
-_STRICT = ConfigDict(frozen=True, extra="forbid")
+TICKER_PATTERN = re.compile(r"[A-Z]{1,5}")  # use with fullmatch
+STRICT_CONFIG = ConfigDict(frozen=True, extra="forbid")
+
+PositiveInt = Annotated[StrictInt, Field(ge=1)]
+Percent = Annotated[float, Field(strict=True, allow_inf_nan=False, gt=0, le=100)]
+PositiveFloat = Annotated[float, Field(strict=True, allow_inf_nan=False, gt=0)]
 
 
 class Whitelist(BaseModel):
-    model_config = _STRICT
+    model_config = STRICT_CONFIG
 
     etfs: tuple[str, ...]
     stocks: tuple[str, ...]
@@ -22,7 +27,7 @@ class Whitelist(BaseModel):
     @classmethod
     def _tickers_well_formed(cls, tickers: tuple[str, ...]) -> tuple[str, ...]:
         for t in tickers:
-            if not _TICKER.match(t):
+            if not TICKER_PATTERN.fullmatch(t):
                 raise ValueError(f"ticker {t!r} must be 1-5 uppercase letters")
         if len(set(tickers)) != len(tickers):
             raise ValueError("duplicate ticker in list")
@@ -37,12 +42,12 @@ class Whitelist(BaseModel):
 
 
 class Limits(BaseModel):
-    model_config = _STRICT
+    model_config = STRICT_CONFIG
 
-    max_position_pct: float = Field(gt=0, le=100)
-    max_open_positions: int = Field(ge=1)
-    max_new_trades_per_day: int = Field(ge=1)
-    max_daily_loss_pct: float = Field(gt=0, le=100)
+    max_position_pct: Percent
+    max_open_positions: PositiveInt
+    max_new_trades_per_day: PositiveInt
+    max_daily_loss_pct: Percent
     whitelist: Whitelist
 
     @property
@@ -51,21 +56,39 @@ class Limits(BaseModel):
 
 
 class StrategyParams(BaseModel):
-    model_config = _STRICT
+    model_config = STRICT_CONFIG
 
-    sma_period: int = Field(gt=0)
-    rsi_period: int = Field(gt=0)
-    rsi_max: float = Field(gt=0)
-    atr_period: int = Field(gt=0)
-    stop_atr_multiple: float = Field(gt=0)
-    target_atr_multiple: float = Field(gt=0)
-    time_exit_trading_days: int = Field(gt=0)
-    news_window_hours: int = Field(gt=0)
-    min_bars: int = Field(gt=0)
+    sma_period: PositiveInt
+    rsi_period: PositiveInt
+    rsi_max: Percent
+    atr_period: PositiveInt
+    stop_atr_multiple: PositiveFloat
+    target_atr_multiple: PositiveFloat
+    time_exit_trading_days: PositiveInt
+    news_window_hours: PositiveInt
+    min_bars: PositiveInt
+
+    @model_validator(mode="after")
+    def _enough_bars(self) -> "StrategyParams":
+        longest = max(self.sma_period, self.rsi_period, self.atr_period)
+        if self.min_bars <= longest:
+            raise ValueError(f"min_bars ({self.min_bars}) must exceed the longest period ({longest})")
+        return self
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that refuses duplicate keys instead of silently keeping the last one."""
+
+    def construct_mapping(self, node, deep=False):
+        keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
+        duplicates = sorted({k for k in keys if keys.count(k) > 1}, key=str)
+        if duplicates:
+            raise ValueError(f"duplicate keys in YAML: {duplicates}")
+        return super().construct_mapping(node, deep)
 
 
 def _read_yaml(path: Path) -> dict:
-    return yaml.safe_load(path.read_text())
+    return yaml.load(path.read_text(), Loader=_UniqueKeyLoader)
 
 
 def load_limits(path: Path = PROJECT_ROOT / "config/limits.yaml") -> Limits:

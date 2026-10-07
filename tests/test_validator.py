@@ -247,3 +247,10 @@ def test_approved_order_cannot_be_altered_with_replace(validate):
     order = validate(proposal()).order
     with pytest.raises(PermissionError):
         dataclasses.replace(order, quantity=1000)
+
+
+@pytest.mark.parametrize("atr", ["0", "-1"])
+def test_non_positive_atr_rejected(validate, atr):
+    cand = Candidate("MSFT", Decimal("400"), Decimal("380"), Decimal("35"), Decimal(atr))
+    r = validate(proposal(), cands=(cand,))
+    assert "bad_stop" in codes(r) and not r.approved

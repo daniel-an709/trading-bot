@@ -49,3 +49,18 @@ def test_paper_endpoint(url, ok):
 
 def test_paper_endpoint_non_string():
     assert is_paper_endpoint(None) is False  # type: ignore[arg-type]
+
+
+def test_dangling_symlink_kill_halts(tmp_path):
+    (tmp_path / "KILL").symlink_to(tmp_path / "gone")
+    assert kill_switch_reason(tmp_path, {}) is not None
+
+
+def test_kill_check_error_fails_closed(tmp_path, monkeypatch):
+    import os
+
+    def boom(_):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(os.path, "lexists", boom)
+    assert kill_switch_reason(tmp_path, {}) is not None

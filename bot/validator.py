@@ -191,8 +191,8 @@ def _validate_proposal(raw, snapshot, candidates, limits, strategy, project_root
         atr = candidate.atr
         stop = (limit - Decimal(str(strategy.stop_atr_multiple)) * atr).quantize(CENT, ROUND_HALF_UP)
         target = (limit + Decimal(str(strategy.target_atr_multiple)) * atr).quantize(CENT, ROUND_HALF_UP)
-        if stop <= 0:
-            reasons.append(f"bad_stop: computed stop {stop} <= 0")
+        if atr <= 0 or stop <= 0 or not stop < limit < target:
+            reasons.append(f"bad_stop: atr {atr} gives stop {stop} / target {target} around limit {limit}")
 
     if reasons:
         return ValidationResult("rejected", tuple(reasons), proposal)
