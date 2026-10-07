@@ -80,7 +80,7 @@ Six top-level packages only, each `name==<version from .venv/bin/pip show name>`
 ALPACA_API_KEY=
 ALPACA_SECRET_KEY=
 ANTHROPIC_API_KEY=
-KILL_SWITCH=0
+KILL_SWITCH=
 ```
 
 - [ ] **Step 4: Write the failing hygiene test**

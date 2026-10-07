@@ -115,7 +115,7 @@ Claude's final output must be exactly one JSON object, one of:
 
 | # | Check | On failure |
 |---|---|---|
-| 1 | Kill switch off (`KILL` file absent, `KILL_SWITCH` ≠ `1`) | Reject immediately |
+| 1 | Kill switch off (`KILL` file absent, and `KILL_SWITCH` empty or `0` after stripping whitespace; any other value halts) | Reject immediately |
 | 2 | Paper endpoint | Reject immediately |
 | 3 | Valid JSON matching the schema | Reject immediately ("malformed") |
 | 4 | `no_trade` | Not approved, nothing to do; logged |

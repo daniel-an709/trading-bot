@@ -32,9 +32,15 @@ An AI-in-the-loop swing-trading bot on an Alpaca **paper** account. Code finds t
 
 ## Commands
 
+Python 3.13.
+
 ```bash
-source .venv/bin/activate          # activate the virtual environment
-.venv/bin/pytest                   # run all tests
+python3 -m venv .venv                                          # create the virtual environment
+.venv/bin/pip install -r requirements.txt -c constraints.txt   # install exact locked versions
+source .venv/bin/activate                                      # activate it
+.venv/bin/pytest                                               # run all tests
 ```
+
+After changing `requirements.txt`, regenerate the lock: `.venv/bin/pip freeze > constraints.txt` (keep the two header comment lines).
 
 Dry-run command: added in build step 5.
