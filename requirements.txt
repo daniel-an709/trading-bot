@@ -1,0 +1,6 @@
+alpaca-py==0.44.0
+claude-agent-sdk==0.2.164
+pydantic==2.13.5
+python-dotenv==1.2.4
+PyYAML==6.0.3
+pytest==9.1.1
