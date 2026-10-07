@@ -1,0 +1,7 @@
+# How the bot calls Claude. Approved 2026-10-07: Opus 5.5 at medium effort, $1 per run, $27 per month.
+model: claude-opus-5-5
+effort: medium
+max_turns: 12
+max_budget_usd_per_run: 1.00
+monthly_budget_usd: 27
+data_feed: iex

@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
@@ -76,6 +76,23 @@ class StrategyParams(BaseModel):
         return self
 
 
+class RunnerParams(BaseModel):
+    model_config = STRICT_CONFIG
+
+    model: Annotated[str, Field(min_length=1)]
+    effort: Literal["low", "medium", "high", "xhigh", "max"]
+    max_turns: PositiveInt
+    max_budget_usd_per_run: PositiveFloat
+    monthly_budget_usd: PositiveFloat
+    data_feed: Literal["iex", "sip", "delayed_sip"]
+
+    @model_validator(mode="after")
+    def _per_run_within_month(self) -> "RunnerParams":
+        if self.max_budget_usd_per_run > self.monthly_budget_usd:
+            raise ValueError("max_budget_usd_per_run must not exceed monthly_budget_usd")
+        return self
+
+
 class _UniqueKeyLoader(yaml.SafeLoader):
     """SafeLoader that refuses duplicate keys instead of silently keeping the last one."""
 
@@ -97,3 +114,7 @@ def load_limits(path: Path = PROJECT_ROOT / "config/limits.yaml") -> Limits:
 
 def load_strategy(path: Path = PROJECT_ROOT / "config/strategy.yaml") -> StrategyParams:
     return StrategyParams.model_validate(_read_yaml(path))
+
+
+def load_runner(path: Path = PROJECT_ROOT / "config/runner.yaml") -> RunnerParams:
+    return RunnerParams.model_validate(_read_yaml(path))

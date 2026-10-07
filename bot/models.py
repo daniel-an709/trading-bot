@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -18,6 +19,16 @@ class OpenOrder:
     symbol: str
     side: Literal["buy", "sell"]
     qty: int
+
+
+@dataclass(frozen=True)
+class Bar:
+    """One completed daily session."""
+
+    day: date
+    high: Decimal
+    low: Decimal
+    close: Decimal
 
 
 @dataclass(frozen=True)

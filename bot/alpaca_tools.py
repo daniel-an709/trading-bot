@@ -1,8 +1,12 @@
 """Alpaca MCP server pin and the tools no Claude session may ever call.
 
-BLOCKED_TOOLS is mirrored as deny rules in .claude/settings.json (Claude Code) and will be
-passed as disallowed tools to the bot's Agent SDK session. Tests keep them in sync.
+BLOCKED_TOOLS is mirrored as deny rules in .claude/settings.json (Claude Code) and passed as
+disallowed tools to the bot's Agent SDK session. READ_TOOLS is the only Alpaca access the bot's
+Claude session gets (approved by the user 2026-10-07). Tests keep them in sync.
 """
+
+import json
+from pathlib import Path
 
 MCP_SERVER_NAME = "alpaca"
 MCP_SERVER_PACKAGE = "alpaca-mcp-server==2.3.2"
@@ -31,3 +35,21 @@ BLOCKED_TOOLS = frozenset({
     "add_asset_to_watchlist_by_id",
     "remove_asset_from_watchlist_by_id",
 })
+
+# Read-only tools the bot's Claude session may call.
+READ_TOOLS = frozenset({
+    "get_news",
+    "get_corporate_action_announcements",
+    "get_account_info",
+    "get_all_positions",
+    "get_orders",
+    "get_stock_snapshot",
+    "get_clock",
+})
+
+# Every tool the pinned server version exposes (regenerate when MCP_SERVER_PACKAGE changes).
+SERVER_TOOLS = frozenset(json.loads(Path(__file__).with_name("alpaca_mcp_tools.json").read_text())["tools"])
+
+
+def mcp_name(tool: str) -> str:
+    return f"mcp__{MCP_SERVER_NAME}__{tool}"

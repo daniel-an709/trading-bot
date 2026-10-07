@@ -110,3 +110,29 @@ def write_strategy(tmp_path, **changes):
 def test_strategy_sanity_checks(tmp_path, mutation):
     with pytest.raises(pydantic.ValidationError):
         load_strategy(write_strategy(tmp_path, **mutation))
+
+
+from bot.config import load_runner  # noqa: E402
+
+
+def test_load_runner_real_file():
+    r = load_runner()
+    assert (r.model, r.effort, r.max_turns, r.max_budget_usd_per_run, r.monthly_budget_usd, r.data_feed) == (
+        "claude-opus-5-5", "medium", 12, 1.0, 27, "iex")
+
+
+def write_runner(tmp_path, **changes):
+    data = yaml.safe_load((PROJECT_ROOT / "config/runner.yaml").read_text())
+    data.update(changes)
+    path = tmp_path / "runner.yaml"
+    path.write_text(yaml.safe_dump(data))
+    return path
+
+
+@pytest.mark.parametrize("mutation", [
+    {"max_budget_usd_per_run": 30}, {"effort": "extreme"}, {"model": ""}, {"max_turns": 0},
+    {"data_feed": "nyse"}, {"monthly_budget_usd": float("inf")}, {"extra": 1},
+])
+def test_bad_runner_config_rejected(tmp_path, mutation):
+    with pytest.raises(pydantic.ValidationError):
+        load_runner(write_runner(tmp_path, **mutation))
