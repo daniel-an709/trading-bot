@@ -58,4 +58,4 @@ For each candidate, read news from the last `news_window_hours` hours using the 
 3. Break remaining ties by the lowest RSI (the deepest pullback).
 4. Propose at most one trade. If nothing survives, answer no trade — that is a good outcome, not a failure. The point of this experiment is to learn whether your judgment beats the plain rules, and passing on a doubtful setup is exactly the judgment being tested.
 
-Before proposing, check the account and positions with the Alpaca tools and follow the risk skill for sizing and limits. Format your answer with the journal skill.
+Before proposing, use the Alpaca tools to confirm the ticker isn't already held or on order. Size from the capacity numbers in the prompt, not from live account values — the validator checks against that same snapshot, so a size based on a newer number can be rejected. Follow the risk skill for sizing and limits, and format your answer with the journal skill.

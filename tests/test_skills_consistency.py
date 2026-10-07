@@ -53,6 +53,7 @@ def parse_block(text: str) -> tuple[str, dict[str, str], str]:
             continue
         m = ENTRY.match(line)
         assert m, f"unparseable config line: {line!r}"
+        assert m.group(1) not in entries, f"duplicate key in config block: {m.group(1)}"
         entries[m.group(1)] = m.group(2).strip()
     outside = BLOCK.sub("", text)
     return source, entries, outside
@@ -60,8 +61,13 @@ def parse_block(text: str) -> tuple[str, dict[str, str], str]:
 
 def same(block_value: str, yaml_value) -> bool:
     if isinstance(yaml_value, list):
-        return {t.strip() for t in block_value.split(",")} == set(yaml_value)
-    return float(block_value.rstrip("%")) == float(yaml_value)
+        return sorted(t.strip() for t in block_value.split(",")) == sorted(yaml_value)
+    if isinstance(yaml_value, (int, float)) and not isinstance(yaml_value, bool):
+        try:
+            return float(block_value.rstrip("%")) == float(yaml_value)
+        except ValueError:
+            return False
+    return block_value == str(yaml_value)
 
 
 @pytest.mark.parametrize("name", ["strategy", "risk", "journal"])
@@ -91,3 +97,47 @@ def test_no_numbers_outside_config_block(skill):
     list_marker = re.compile(r"^\s*\d+\.\s")  # "1. " numbering is not a config value
     stale = [line for line in body.splitlines() if re.search(r"\d", list_marker.sub("", line))]
     assert not stale, f"{skill}/SKILL.md has numbers outside its config block (refer to keys instead): {stale}"
+
+
+def test_duplicate_block_key_rejected():
+    text = "<!-- config: limits.yaml -->\n- `max_position_pct`: 5\n- `max_position_pct`: 3\n<!-- /config -->"
+    with pytest.raises(AssertionError, match="duplicate"):
+        parse_block(text)
+
+
+def test_list_values_compared_exactly():
+    assert not same("SPY, SPY, QQQ", ["SPY", "QQQ"])
+    assert same("QQQ, SPY", ["SPY", "QQQ"])
+
+
+def test_non_numeric_values_compared_as_text():
+    assert same("1Day", "1Day") and not same("1Day", "1Hour")
+
+
+@pytest.mark.parametrize("skill", ["risk", "strategy"])
+def test_no_numbers_in_description(skill):
+    description = frontmatter(skill_text(skill))["description"]
+    assert not re.search(r"\d", description), f"{skill} description contains numbers: {description!r}"
+
+
+def test_risk_skill_states_validator_limit_band():
+    # The band is hard-coded in bot/validator.py; the skill describes it in words.
+    from decimal import Decimal
+
+    from bot.validator import LIMIT_BAND_HIGH, LIMIT_BAND_LOW
+
+    assert (LIMIT_BAND_LOW, LIMIT_BAND_HIGH) == (Decimal("0.90"), Decimal("1.01")), (
+        "validator limit band changed: update the wording in risk/SKILL.md, then this test"
+    )
+    text = skill_text("risk")
+    assert "more than one percent above the latest price" in text
+    assert "more than ten percent below it" in text
+
+
+def test_journal_examples_pass_the_real_parser():
+    from bot.schema import parse_proposal
+
+    blocks = re.findall(r"```json\n(.*?)\n```", skill_text("journal"), re.DOTALL)
+    assert len(blocks) >= 3
+    for block in blocks:
+        parse_proposal(block)

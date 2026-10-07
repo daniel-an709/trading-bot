@@ -9,7 +9,7 @@ Every run is logged and later compared against SPY and against the plain rules w
 
 ## The answer
 
-When the bot asks for your final answer, reply with **only one JSON object** — no text before or after it. A ```json code fence around it is fine. Anything else is rejected as malformed and the run is wasted.
+When the prompt asks for the bot's final answer — the bot's prompt always does — reply with **only one JSON object**: no text before or after it, even though the bot itself runs on Claude Code. A ```json code fence around it is fine. Anything else is rejected as malformed and the run is wasted.
 
 **Trade:**
 ```json
@@ -24,9 +24,9 @@ When the bot asks for your final answer, reply with **only one JSON object** —
 {"decision": "no_trade", "reasoning": "Skipped: ...\nSummary: ..."}
 ```
 
-Field rules: `ticker` uppercase; `side` always `"buy"`; `quantity` a whole number; `order_type` always `"limit"`; `limit_price` a number with at most two decimals (not a string); `confidence` a number from 0 to 1. No other fields.
+Field rules: `ticker` uppercase; `side` always `"buy"`; `quantity` a JSON integer with no decimal point (`12`, not `12.0`); `order_type` always `"limit"`; `limit_price` a number with at most two decimals (not a string); `confidence` a number from 0 to 1. No other fields.
 
-In an interactive Claude Code session, show the same JSON and then explain it in plain words below — the strict JSON-only rule is for the bot.
+Only when a person asks you directly in conversation (not a bot prompt) to evaluate candidates, show the same JSON and then explain it in plain words below.
 
 ## Reasoning for a trade
 

@@ -27,7 +27,7 @@ These limits are enforced in code by `bot/validator.py`, which reads `config/lim
 
 The prompt gives you today's remaining capacity: the maximum position size in dollars, trades left today, open slots, and buying power. Use those numbers — they come from the account, computed by code.
 
-1. **Limit price:** the lower of the previous close and the latest price, rounded down to whole cents. This buys the dip rather than chasing a bounce. The validator rejects a limit more than one percent above the latest price or more than ten percent below it.
+1. **Limit price:** the lower of the previous close and the latest price, rounded down to whole cents. This buys the dip rather than chasing a bounce. The validator rejects a limit more than one percent above the latest price or more than ten percent below it. If the previous close is that far below the latest price, the stock has already rallied away from the setup — answer no trade rather than chasing it. A limit below the latest price may not fill; an unfilled order still uses a slot and a trade for the day, which is an accepted cost of not chasing.
 2. **Quantity:** the largest whole number of shares whose cost (quantity times limit price) fits within both the maximum position size in dollars and the buying power. Round down, never up.
 3. If that quantity is less than one share, answer no trade.
 

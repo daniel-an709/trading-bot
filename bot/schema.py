@@ -16,7 +16,7 @@ from bot.config import STRICT_CONFIG, TICKER_PATTERN
 
 MAX_RAW_CHARS = 20_000
 
-_FENCE = re.compile(r"^```(?:json)?[ \t]*\n(.*)\n[ \t]*```$", re.DOTALL)
+_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 
 class MalformedProposal(ValueError):

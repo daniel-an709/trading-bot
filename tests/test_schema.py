@@ -89,3 +89,7 @@ def test_non_string_input_rejected():
 def test_hostile_structures_rejected_as_malformed(raw):
     with pytest.raises(MalformedProposal):
         parse_proposal(raw)
+
+
+def test_single_line_fence_accepted():
+    assert parse_proposal('```json {"decision":"no_trade","reasoning":"r"} ```').decision == "no_trade"
